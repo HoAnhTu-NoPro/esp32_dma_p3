@@ -3,6 +3,9 @@
 #include "Dhole_weather_icons32px.h"
 #include <WiFi.h>
 #include "WiFiManager.h"  
+#include <EEPROM.h>
+
+#define EEPROM_SIZE 64
 
 /*--------------------- DEBUG  -------------------------*/
 #define Sprintln(a) (Serial.println(a))
@@ -84,8 +87,7 @@ lightning_bits, moon_bits, rain0_sun_bits, rain0_bits, rain1_moon_bits, rain1_su
 snow_moon_bits, snow_sun_bits, snow_bits, sun_bits, wind_bits};
 
 /*----------------------Cấu hình Wifi----------------------------*/
-const char* ssid     = "204P";
-const char* password = "123456788";
+char ssid[50], password[50];
 
 void configModeCallback (WiFiManager *myWiFiManager)
 {
@@ -95,6 +97,28 @@ void configModeCallback (WiFiManager *myWiFiManager)
 }
 
 void wifi_manage(){
+  int address = 0;
+  int i;
+  for (i = 0; i < sizeof(ssid); i++) {
+    ssid[i] = EEPROM.read(address + i);
+    if (ssid[i] == '\0') break;  // Dừng lại khi gặp ký tự null
+  }
+  ssid[i] = '\0';  // Đảm bảo chuỗi kết thúc đúng cách
+  address += i + 1;  // Di chuyển địa chỉ tới sau chuỗi đầu tiên
+
+  // Đọc chuỗi thứ hai
+  for (i = 0; i < sizeof(password); i++) {
+    password[i] = EEPROM.read(address + i);
+    if (password[i] == '\0') break;  // Dừng lại khi gặp ký tự null
+  }
+  password[i] = '\0';  // Đảm bảo chuỗi kết thúc đúng cách
+
+  Serial.print("First string read from EEPROM: ");
+  Serial.println(ssid);
+  Serial.print("Second string read from EEPROM: ");
+  Serial.println(password);
+
+
   WiFi.begin(ssid, password);
   int r = 0;
   int time_out_wifi_connect = 0;
@@ -113,10 +137,20 @@ void wifi_manage(){
     WiFiManager wifiManager;
     wifiManager.startConfigPortal("LedMatrix", "1234567890");
     wifiManager.setAPCallback(configModeCallback);
-    String ssid = WiFi.SSID();
-    String password = WiFi.psk();
+    String get_ssid = WiFi.SSID();
+    String get_password = WiFi.psk();
+    Serial.println("Đã kết nối");
+    Serial.print("SSID: ");
+    Serial.println(get_ssid);
+    Serial.print("Password: ");
+    Serial.println(get_password);
   }
 }
+
+void get_ssid_pass_from_eeprom(){
+  int address = 0;
+}
+
 
 void bitmap();
 
@@ -129,14 +163,11 @@ void setup() {
   dma_display->setBrightness8(90); //0-255
   dma_display->clearScreen(); 
   //dma_display->fillScreen(dma_display->color444(0, 1, 0));  
-  /*-----------------------------------Connect Wifi-----------------------------------*/\
+  /*-----------------------------------Connect Wifi-----------------------------------*/
+
   wifi_manage();
   if(WiFi.status() == WL_CONNECTED){
-    Serial.println("Đã kết nối");
-    Serial.print("SSID: ");
-    Serial.println(ssid);
-    Serial.print("Password: ");
-    Serial.println(password);
+    
   }
   else{
     Serial.print("Ngắt kết nối");
