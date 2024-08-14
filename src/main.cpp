@@ -85,10 +85,7 @@ snow_moon_bits, snow_sun_bits, snow_bits, sun_bits, wind_bits};
 
 /*----------------------Cấu hình Wifi----------------------------*/
 const char* ssid     = "204P";
-const char* password = "1234567889";
-//Tên wifi + mật khẩu cho access point
-const char* AP_ssid = "ESP32-Access-Point";
-const char* AP_password = "12345678";
+const char* password = "123456788";
 
 void configModeCallback (WiFiManager *myWiFiManager)
 {
@@ -109,7 +106,6 @@ void wifi_manage(){
       r++;
       delay(10);
     }
-    Serial.print("Test 1");
   }
   while (WiFi.status() != WL_CONNECTED)
   {
@@ -119,31 +115,28 @@ void wifi_manage(){
     wifiManager.setAPCallback(configModeCallback);
     String ssid = WiFi.SSID();
     String password = WiFi.psk();
-    Serial.print("SSID: ");
-    Serial.println(ssid);
-    Serial.print("Password: ");
-    Serial.println(password);
   }
 }
-
 
 void bitmap();
 
 void setup() {
 
   delay(100); Serial.begin(115200); delay(100);
-  /************** DISPLAY **************/
+  /*-----------------------------------DISPLAY-----------------------------------*/
   dma_display = new MatrixPanel_I2S_DMA(mxconfig);
   dma_display->begin();
   dma_display->setBrightness8(90); //0-255
   dma_display->clearScreen(); 
   //dma_display->fillScreen(dma_display->color444(0, 1, 0));  
-
-  /*-----------------Connect Wifi-----------------*/\
+  /*-----------------------------------Connect Wifi-----------------------------------*/\
   wifi_manage();
   if(WiFi.status() == WL_CONNECTED){
-    Serial.print("Đã kết nối");
-    drawXbm565(0,0,64,32, wifi_image1bit, dma_display->color565(255,0,0));
+    Serial.println("Đã kết nối");
+    Serial.print("SSID: ");
+    Serial.println(ssid);
+    Serial.print("Password: ");
+    Serial.println(password);
   }
   else{
     Serial.print("Ngắt kết nối");
@@ -155,8 +148,7 @@ void setup() {
 
 void loop() {
   unsigned long currentMillis = millis();
-
-    bitmap();
+  bitmap();
 }
 
 
@@ -165,7 +157,7 @@ void bitmap(){
 
   drawXbm565(0,0, 32, 32, icon_bits[current_icon]);
     if (Bitmap_currentMillis - Bitmap_previousMillis >= Bitmap_interval) {
-        Bitmap_previousMillis = Bitmap_currentMillis; // Cập nhật thời gian trước đó
+        Bitmap_previousMillis = Bitmap_currentMillis;
 
         Serial.print("Showing icon ");
         Serial.println(icon_name[current_icon]);
