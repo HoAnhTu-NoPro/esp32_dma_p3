@@ -1,8 +1,13 @@
+#define USE_GFX_LITE 1
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "Dhole_weather_icons32px.h"
 #include <WiFi.h>
-#include "WiFiManager.h"  
+#include "WiFiManager.h"
+#include <EEPROM.h>
+
+
+#define EEPROM_SIZE 100
 
 /*--------------------- DEBUG  -------------------------*/
 #define Sprintln(a) (Serial.println(a))
@@ -10,24 +15,10 @@
 #define Sprint(a) (Serial.print(a))
 #define SprintDEC(a, x) (Serial.print(a, x))
 /*--------------------- Cấu hình bảng led-------------------------*/
-#define R1_PIN 25
-#define G1_PIN 26
-#define B1_PIN 27
-#define R2_PIN 14
-#define G2_PIN 12
-#define B2_PIN 13
-#define A_PIN 23
-#define B_PIN 19
-#define C_PIN 5
-#define D_PIN 17
-#define E_PIN -1
-#define LAT_PIN 4
-#define OE_PIN 15
-#define CLK_PIN 16
-
 #define PANEL_RES_X 64
 #define PANEL_RES_Y 32
 #define PANEL_CHAIN 1
+#define PANEL_CHAIN_TYPE CHAIN_TOP_RIGHT_DOWN
  
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 HUB75_I2S_CFG mxconfig(
@@ -71,9 +62,22 @@ void drawXbm565(int x, int y, int width, int height, const char *xbm, uint16_t c
     }
 }
 
+void colorWaveEffect(float timeOffset) {
+  for (int x = 0; x < dma_display->width(); x++) {
+    for (int y = 0; y < dma_display->height(); y++) {
+      uint8_t r = (sin(x * 0.1 + timeOffset) + 1) * 127; // Sóng màu đỏ
+      uint8_t g = (sin(y * 0.1 + 2 + timeOffset) + 1) * 127; // Sóng màu xanh lá
+      uint8_t b = (sin((x + y) * 0.1 + timeOffset) + 1) * 127; // Sóng màu xanh dương
+      dma_display->drawPixel(x, y, dma_display->color565(r, g, b));
+    }
+  }
+}
+
 /* Bitmaps */
 int current_icon = 0;
 static int num_icons = 22;
+/*Aurora*/
+int lastPattern = 0;
 
 static char icon_name[22][30] = {"cloud_moon_bits", "cloud_sun_bits", "clouds_bits", "cloud_wind_moon_bits", "cloud_wind_sun_bits", "cloud_wind_bits", "cloud_bits",
 "lightning_bits", "moon_bits", "rain0_sun_bits", "rain0_bits", "rain1_moon_bits", "rain1_sun_bits", "rain1_bits", "rain2_bits", "rain_lightning_bits",
@@ -84,9 +88,6 @@ lightning_bits, moon_bits, rain0_sun_bits, rain0_bits, rain1_moon_bits, rain1_su
 snow_moon_bits, snow_sun_bits, snow_bits, sun_bits, wind_bits};
 
 /*----------------------Cấu hình Wifi----------------------------*/
-const char* ssid     = "204P";
-const char* password = "123456788";
-
 void configModeCallback (WiFiManager *myWiFiManager)
 {
   Serial.println("Entered config mode");
@@ -94,8 +95,33 @@ void configModeCallback (WiFiManager *myWiFiManager)
   Serial.println(myWiFiManager->getConfigPortalSSID());
 }
 
-void wifi_manage(){
-  WiFi.begin(ssid, password);
+void wifi_manage();
+void bitmap();
+
+void setup() {
+
+  delay(100);
+  Serial.begin(115200); //Khởi tạo Serial
+
+/*-----------------------------------Lấy giá trị eeproom-----------------------------------*/
+  EEPROM.begin(EEPROM_SIZE); // Khởi tạo EEPROM với kích thước xác định
+  char ssid_er[50];
+  char pass_er[20];
+  size_t bytes_ssid_read = EEPROM.readString(0, ssid_er, sizeof(ssid_er));
+  size_t bytes_pass_read = EEPROM.readString(51, pass_er, sizeof(pass_er));
+  Serial.println("Doc EEPROM:");
+  Serial.println(ssid_er);
+  Serial.println(pass_er);
+  delay(100);
+  
+  /*-----------------------------------DISPLAY-----------------------------------*/
+  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+  dma_display->begin(); //Khởi tạo led matrix dma
+  dma_display->setBrightness8(90); //0-255
+  dma_display->clearScreen(); 
+  //dma_display->fillScreen(dma_display->color444(0, 1, 0));  
+  /*-----------------------------------Connect Wifi-----------------------------------*/\
+  WiFi.begin(ssid_er, pass_er);
   int r = 0;
   int time_out_wifi_connect = 0;
   while ((WiFi.status() != WL_CONNECTED) && time_out_wifi_connect < 600 ) {  
@@ -113,42 +139,37 @@ void wifi_manage(){
     WiFiManager wifiManager;
     wifiManager.startConfigPortal("LedMatrix", "1234567890");
     wifiManager.setAPCallback(configModeCallback);
+  }
+  if(WiFi.status() == WL_CONNECTED){
     String ssid = WiFi.SSID();
     String password = WiFi.psk();
-  }
-}
-
-void bitmap();
-
-void setup() {
-
-  delay(100); Serial.begin(115200); delay(100);
-  /*-----------------------------------DISPLAY-----------------------------------*/
-  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-  dma_display->begin();
-  dma_display->setBrightness8(90); //0-255
-  dma_display->clearScreen(); 
-  //dma_display->fillScreen(dma_display->color444(0, 1, 0));  
-  /*-----------------------------------Connect Wifi-----------------------------------*/\
-  wifi_manage();
-  if(WiFi.status() == WL_CONNECTED){
     Serial.println("Đã kết nối");
-    Serial.print("SSID: ");
-    Serial.println(ssid);
-    Serial.print("Password: ");
-    Serial.println(password);
+    EEPROM.writeString(51, password);
+    EEPROM.commit();
   }
   else{
-    Serial.print("Ngắt kết nối");
+    Serial.print("Chưa kết nối");
   }
+  delay(1000);
+  dma_display->clearScreen();
+  for(int g = 0; g<255; g++)
+    {
+      drawXbm565(0,0,64,32, wifi_image1bit, dma_display->color565(0,g,0));
+      delay(5);
+    }
   delay(2000);
   dma_display->clearScreen();
 }
 
 
 void loop() {
-  unsigned long currentMillis = millis();
-  bitmap();
+  // unsigned long currentMillis = millis();
+  // bitmap();
+  static float timeOffset = 0;
+  colorWaveEffect(timeOffset);
+  timeOffset += 0.1; // Điều chỉnh tốc độ của sóng
+  delay(50); // Thời gian delay để làm chậm tốc độ chuyển động
+  
 }
 
 
@@ -166,3 +187,6 @@ void bitmap(){
     }
   
 }
+
+
+
