@@ -1,10 +1,17 @@
-#define USE_GFX_LITE 1
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include "Dhole_weather_icons32px.h"
+//Thư viện Wifi - MQTT Client
 #include <WiFi.h>
 #include "WiFiManager.h"
+#include <WiFiClient.h>
+#include <PubSubClient.h>
+//Thư viện EEPROM
 #include <EEPROM.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+#include <AnimatedGIF.h>
 
 
 #define EEPROM_SIZE 100
@@ -18,7 +25,6 @@
 #define PANEL_RES_X 64
 #define PANEL_RES_Y 32
 #define PANEL_CHAIN 1
-#define PANEL_CHAIN_TYPE CHAIN_TOP_RIGHT_DOWN
  
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 HUB75_I2S_CFG mxconfig(
@@ -144,6 +150,7 @@ void setup() {
     String ssid = WiFi.SSID();
     String password = WiFi.psk();
     Serial.println("Đã kết nối");
+    EEPROM.writeString(0, ssid);
     EEPROM.writeString(51, password);
     EEPROM.commit();
   }

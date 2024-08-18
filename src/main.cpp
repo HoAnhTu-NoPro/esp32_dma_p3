@@ -1,198 +1,243 @@
 #include <Arduino.h>
-#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
-#include "Dhole_weather_icons32px.h"
-//Thư viện Wifi - MQTT Client
 #include <WiFi.h>
-#include "WiFiManager.h"
-#include <WiFiClient.h>
-#include <PubSubClient.h>
-//Thư viện EEPROM
-#include <EEPROM.h>
-#include "FS.h"
-#include "SD.h"
-#include "SPI.h"
-#include <AnimatedGIF.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include "LittleFS.h"
 
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
 
-#define EEPROM_SIZE 100
+// Search for parameter in HTTP POST request
+const char* PARAM_INPUT_1 = "ssid";
+const char* PARAM_INPUT_2 = "pass";
+const char* PARAM_INPUT_3 = "ip";
+const char* PARAM_INPUT_4 = "gateway";
 
-/*--------------------- DEBUG  -------------------------*/
-#define Sprintln(a) (Serial.println(a))
-#define SprintlnDEC(a, x) (Serial.println(a, x))
-#define Sprint(a) (Serial.print(a))
-#define SprintDEC(a, x) (Serial.print(a, x))
-/*--------------------- Cấu hình bảng led-------------------------*/
-#define PANEL_RES_X 64
-#define PANEL_RES_Y 32
-#define PANEL_CHAIN 1
- 
-MatrixPanel_I2S_DMA *dma_display = nullptr;
-HUB75_I2S_CFG mxconfig(
-	PANEL_RES_X,
-	PANEL_RES_Y,
-	PANEL_CHAIN
-);
+//Variables to save values from HTML form
+String ssid;
+String pass;
+String ip;
+String gateway;
 
-/*----------------------Biến timer-------------------*/
+// File paths to save input values permanently
+const char* ssidPath = "/ssid.txt";
+const char* passPath = "/pass.txt";
+const char* ipPath = "/ip.txt";
+const char* gatewayPath = "/gateway.txt";
+
+IPAddress localIP;
+//IPAddress localIP(192, 168, 1, 200); // hardcoded
+
+// Set your Gateway IP address
+IPAddress localGateway;
+//IPAddress localGateway(192, 168, 1, 1); //hardcoded
+IPAddress subnet(255, 255, 0, 0);
+
+// Timer variables
 unsigned long previousMillis = 0;
-const long interval = 1000;
+const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
 
-unsigned long Bitmap_previousMillis = 0;
-const long Bitmap_interval = 2000;
-/*----------------------Bitmap Wifi------------------*/
-const char wifi_image1bit[] PROGMEM   =  {
- 0x00,0x00,0x00,0xf8,0x1f,0x00,0x00,0x00,0x00,0x00,0x80,0xff,0xff,0x01,0x00,0x00,0x00,0x00,0xf0,0xff,0xff,0x07,0x00,0x00,0x00,0x00,0xfc,0xff,0xff,0x1f,
- 0x00,0x00,0x00,0x00,0xfe,0x07,0xe0,0x7f,0x00,0x00,0x00,0x80,0xff,0x00,0x00,0xff,0x01,0x00,0x00,0xc0,0x1f,0x00,0x00,0xf8,0x03,0x00,0x00,0xe0,0x0f,0x00,
- 0x00,0xf0,0x07,0x00,0x00,0xf0,0x03,0xf0,0x0f,0xc0,0x0f,0x00,0x00,0xe0,0x01,0xff,0xff,0x80,0x07,0x00,0x00,0xc0,0xc0,0xff,0xff,0x03,0x03,0x00,0x00,0x00,
- 0xe0,0xff,0xff,0x07,0x00,0x00,0x00,0x00,0xf8,0x0f,0xf0,0x1f,0x00,0x00,0x00,0x00,0xfc,0x01,0x80,0x3f,0x00,0x00,0x00,0x00,0x7c,0x00,0x00,0x3e,0x00,0x00,
- 0x00,0x00,0x38,0x00,0x00,0x1c,0x00,0x00,0x00,0x00,0x10,0xe0,0x07,0x08,0x00,0x00,0x00,0x00,0x00,0xfc,0x3f,0x00,0x00,0x00,0x00,0x00,0x00,0xfe,0x7f,0x00,
- 0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x00,0x00,0x00,0x00,0x00,0x00,0x1f,0xf8,0x00,0x00,0x00,0x00,0x00,0x00,0x06,0x60,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
- 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x01,0x00,0x00,0x00,0x00,0x00,
- 0x00,0xc0,0x03,0x00,0x00,0x00,0x00,0x00,0x00,0xe0,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0xe0,0x07,0x00,0x00,0x00,0x00,0x00,0x00,0xc0,0x03,0x00,0x00,0x00,
- 0x00,0x00,0x00,0x80,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+// Set LED GPIO
+const int ledPin = 2;
+// Stores LED state
 
-void drawXbm565(int x, int y, int width, int height, const char *xbm, uint16_t color = 0xffff) 
-{
-  if (width % 8 != 0) {
-      width =  ((width / 8) + 1) * 8;
+String ledState;
+
+// Initialize LittleFS
+void initLittleFS() {
+  if (!LittleFS.begin(true)) {
+    Serial.println("An error has occurred while mounting LittleFS");
   }
-    for (int i = 0; i < width * height / 8; i++ ) {
-      unsigned char charColumn = pgm_read_byte(xbm + i);
-      for (int j = 0; j < 8; j++) {
-        int targetX = (i * 8 + j) % width + x;
-        int targetY = (8 * i / (width)) + y;
-        if (bitRead(charColumn, j)) {
-          dma_display->drawPixel(targetX, targetY, color);
-        }
-      }
-    }
+  Serial.println("LittleFS mounted successfully");
 }
 
-void colorWaveEffect(float timeOffset) {
-  for (int x = 0; x < dma_display->width(); x++) {
-    for (int y = 0; y < dma_display->height(); y++) {
-      uint8_t r = (sin(x * 0.1 + timeOffset) + 1) * 127; // Sóng màu đỏ
-      uint8_t g = (sin(y * 0.1 + 2 + timeOffset) + 1) * 127; // Sóng màu xanh lá
-      uint8_t b = (sin((x + y) * 0.1 + timeOffset) + 1) * 127; // Sóng màu xanh dương
-      dma_display->drawPixel(x, y, dma_display->color565(r, g, b));
-    }
+// Read File from LittleFS
+String readFile(fs::FS &fs, const char * path){
+  Serial.printf("Reading file: %s\r\n", path);
+
+  File file = fs.open(path);
+  if(!file || file.isDirectory()){
+    Serial.println("- failed to open file for reading");
+    return String();
+  }
+  
+  String fileContent;
+  while(file.available()){
+    fileContent = file.readStringUntil('\n');
+    break;     
+  }
+  return fileContent;
+}
+
+// Write file to LittleFS
+void writeFile(fs::FS &fs, const char * path, const char * message){
+  Serial.printf("Writing file: %s\r\n", path);
+
+  File file = fs.open(path, FILE_WRITE);
+  if(!file){
+    Serial.println("- failed to open file for writing");
+    return;
+  }
+  if(file.print(message)){
+    Serial.println("- file written");
+  } else {
+    Serial.println("- write failed");
   }
 }
 
-/* Bitmaps */
-int current_icon = 0;
-static int num_icons = 22;
-/*Aurora*/
-int lastPattern = 0;
+// Initialize WiFi
+bool initWiFi() {
+  if(ssid=="" || ip==""){
+    Serial.println("Undefined SSID or IP address.");
+    return false;
+  }
 
-static char icon_name[22][30] = {"cloud_moon_bits", "cloud_sun_bits", "clouds_bits", "cloud_wind_moon_bits", "cloud_wind_sun_bits", "cloud_wind_bits", "cloud_bits",
-"lightning_bits", "moon_bits", "rain0_sun_bits", "rain0_bits", "rain1_moon_bits", "rain1_sun_bits", "rain1_bits", "rain2_bits", "rain_lightning_bits",
-"rain_snow_bits", "snow_moon_bits", "snow_sun_bits", "snow_bits", "sun_bits", "wind_bits" };
+  WiFi.mode(WIFI_STA);
+  localIP.fromString(ip.c_str());
+  localGateway.fromString(gateway.c_str());
 
-static char *icon_bits[22] = { cloud_moon_bits, cloud_sun_bits, clouds_bits, cloud_wind_moon_bits, cloud_wind_sun_bits, cloud_wind_bits, cloud_bits,
-lightning_bits, moon_bits, rain0_sun_bits, rain0_bits, rain1_moon_bits, rain1_sun_bits, rain1_bits, rain2_bits, rain_lightning_bits, rain_snow_bits,
-snow_moon_bits, snow_sun_bits, snow_bits, sun_bits, wind_bits};
 
-/*----------------------Cấu hình Wifi----------------------------*/
-void configModeCallback (WiFiManager *myWiFiManager)
-{
-  Serial.println("Entered config mode");
-  Serial.println(WiFi.softAPIP());
-  Serial.println(myWiFiManager->getConfigPortalSSID());
+  if (!WiFi.config(localIP, localGateway, subnet)){
+    Serial.println("STA Failed to configure");
+    return false;
+  }
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  Serial.println("Connecting to WiFi...");
+
+  unsigned long currentMillis = millis();
+  previousMillis = currentMillis;
+
+  while(WiFi.status() != WL_CONNECTED) {
+    currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      Serial.println("Failed to connect.");
+      return false;
+    }
+  }
+
+  Serial.println(WiFi.localIP());
+  return true;
 }
 
-void wifi_manage();
-void bitmap();
+// Replaces placeholder with LED state value
+String processor(const String& var) {
+  if(var == "STATE") {
+    if(digitalRead(ledPin)) {
+      ledState = "ON";
+    }
+    else {
+      ledState = "OFF";
+    }
+    return ledState;
+  }
+  return String();
+}
 
 void setup() {
+  // Serial port for debugging purposes
+  Serial.begin(115200);
 
-  delay(100);
-  Serial.begin(115200); //Khởi tạo Serial
+  initLittleFS();
 
-/*-----------------------------------Lấy giá trị eeproom-----------------------------------*/
-  EEPROM.begin(EEPROM_SIZE); // Khởi tạo EEPROM với kích thước xác định
-  char ssid_er[50];
-  char pass_er[20];
-  size_t bytes_ssid_read = EEPROM.readString(0, ssid_er, sizeof(ssid_er));
-  size_t bytes_pass_read = EEPROM.readString(51, pass_er, sizeof(pass_er));
-  Serial.println("Doc EEPROM:");
-  Serial.println(ssid_er);
-  Serial.println(pass_er);
-  delay(100);
+  // Set GPIO 2 as an OUTPUT
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
   
-  /*-----------------------------------DISPLAY-----------------------------------*/
-  dma_display = new MatrixPanel_I2S_DMA(mxconfig);
-  dma_display->begin(); //Khởi tạo led matrix dma
-  dma_display->setBrightness8(90); //0-255
-  dma_display->clearScreen(); 
-  //dma_display->fillScreen(dma_display->color444(0, 1, 0));  
-  /*-----------------------------------Connect Wifi-----------------------------------*/\
-  WiFi.begin(ssid_er, pass_er);
-  int r = 0;
-  int time_out_wifi_connect = 0;
-  while ((WiFi.status() != WL_CONNECTED) && time_out_wifi_connect < 600 ) {  
-    time_out_wifi_connect++;
-    if(r < 255)
-    {
-      drawXbm565(0,0,64,32, wifi_image1bit, dma_display->color565(r,0,0));
-      r++;
-      delay(10);
-    }
-  }
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    WiFi.mode(WIFI_STA);
-    WiFiManager wifiManager;
-    wifiManager.startConfigPortal("LedMatrix", "1234567890");
-    wifiManager.setAPCallback(configModeCallback);
-  }
-  if(WiFi.status() == WL_CONNECTED){
-    String ssid = WiFi.SSID();
-    String password = WiFi.psk();
-    Serial.println("Đã kết nối");
-    EEPROM.writeString(51, password);
-    EEPROM.commit();
-  }
-  else{
-    Serial.print("Chưa kết nối");
-  }
-  delay(1000);
-  dma_display->clearScreen();
-  for(int g = 0; g<255; g++)
-    {
-      drawXbm565(0,0,64,32, wifi_image1bit, dma_display->color565(0,g,0));
-      delay(5);
-    }
-  delay(2000);
-  dma_display->clearScreen();
-}
+  // Load values saved in LittleFS
+  ssid = readFile(LittleFS, ssidPath);
+  pass = readFile(LittleFS, passPath);
+  ip = readFile(LittleFS, ipPath);
+  gateway = readFile (LittleFS, gatewayPath);
+  Serial.println(ssid);
+  Serial.println(pass);
+  Serial.println(ip);
+  Serial.println(gateway);
 
+  if(initWiFi()) {
+    // Route for root / web page
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+    });
+    server.serveStatic("/", LittleFS, "/");
+    
+    // Route to set GPIO state to HIGH
+    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, HIGH);
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+    });
+
+    // Route to set GPIO state to LOW
+    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, LOW);
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+    });
+    server.begin();
+  }
+  else {
+    // Connect to Wi-Fi network with SSID and password
+    Serial.println("Setting AP (Access Point)");
+    // NULL sets an open Access Point
+    WiFi.softAP("ESP-WIFI-MANAGER", NULL);
+
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(IP); 
+
+    // Web Server Root URL
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(LittleFS, "/wifimanager.html", "text/html");
+    });
+    
+    server.serveStatic("/", LittleFS, "/");
+    
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+      int params = request->params();
+      for(int i=0;i<params;i++){
+        const AsyncWebParameter* p = request->getParam(i);
+        if(p->isPost()){
+          // HTTP POST ssid value
+          if (p->name() == PARAM_INPUT_1) {
+            ssid = p->value().c_str();
+            Serial.print("SSID set to: ");
+            Serial.println(ssid);
+            // Write file to save value
+            writeFile(LittleFS, ssidPath, ssid.c_str());
+          }
+          // HTTP POST pass value
+          if (p->name() == PARAM_INPUT_2) {
+            pass = p->value().c_str();
+            Serial.print("Password set to: ");
+            Serial.println(pass);
+            // Write file to save value
+            writeFile(LittleFS, passPath, pass.c_str());
+          }
+          // HTTP POST ip value
+          if (p->name() == PARAM_INPUT_3) {
+            ip = p->value().c_str();
+            Serial.print("IP Address set to: ");
+            Serial.println(ip);
+            // Write file to save value
+            writeFile(LittleFS, ipPath, ip.c_str());
+          }
+          // HTTP POST gateway value
+          if (p->name() == PARAM_INPUT_4) {
+            gateway = p->value().c_str();
+            Serial.print("Gateway set to: ");
+            Serial.println(gateway);
+            // Write file to save value
+            writeFile(LittleFS, gatewayPath, gateway.c_str());
+          }
+          //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+        }
+      }
+      request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + ip);
+      delay(3000);
+      ESP.restart();
+    });
+    server.begin();
+  }
+}
 
 void loop() {
-  // unsigned long currentMillis = millis();
-  // bitmap();
-  static float timeOffset = 0;
-  colorWaveEffect(timeOffset);
-  timeOffset += 0.1; // Điều chỉnh tốc độ của sóng
-  delay(50); // Thời gian delay để làm chậm tốc độ chuyển động
-  
+
 }
-
-
-void bitmap(){
-  unsigned long Bitmap_currentMillis = millis();
-
-  drawXbm565(0,0, 32, 32, icon_bits[current_icon]);
-    if (Bitmap_currentMillis - Bitmap_previousMillis >= Bitmap_interval) {
-        Bitmap_previousMillis = Bitmap_currentMillis;
-
-        Serial.print("Showing icon ");
-        Serial.println(icon_name[current_icon]);
-        current_icon = (current_icon  +1 ) % num_icons;
-        dma_display->clearScreen();
-    }
-  
-}
-
-
-
