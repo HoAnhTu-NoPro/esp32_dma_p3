@@ -5,6 +5,10 @@
 #include <WiFi.h>
 #include "WiFiManager.h"
 #include <EEPROM.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+#include <AnimatedGIF.h>
 
 
 #define EEPROM_SIZE 100
