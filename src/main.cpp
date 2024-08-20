@@ -26,12 +26,8 @@ const char* ipPath = "/ip.txt";
 const char* gatewayPath = "/gateway.txt";
 
 IPAddress localIP;
-//IPAddress localIP(192, 168, 1, 200); // hardcoded
-
-// Set your Gateway IP address
 IPAddress localGateway;
-//IPAddress localGateway(192, 168, 1, 1); //hardcoded
-IPAddress subnet(255, 255, 0, 0);
+IPAddress subnet(255, 255, 255, 0);
 
 // Timer variables
 unsigned long previousMillis = 0;
@@ -154,11 +150,19 @@ void setup() {
   Serial.println(gateway);
 
   if(initWiFi()) {
+    if (!LittleFS.exists("/index.html")) {
+          Serial.println("index.html not found!");
+    } else {
+          Serial.println("index.html found!");
+    }
+    Serial.println("Server ON");
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
     server.serveStatic("/", LittleFS, "/");
+    Serial.println("Server ON 1");
+    Serial.println(WiFi.localIP());
     
     // Route to set GPIO state to HIGH
     server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -239,5 +243,4 @@ void setup() {
 }
 
 void loop() {
-
 }
